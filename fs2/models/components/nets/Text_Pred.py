@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 class ResBlock(nn.Module):
     def __init__(self, dim, dropout=0.1):
         super().__init__()
@@ -39,6 +38,28 @@ class StyleAdaptor(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+class StyleAdaptorLoss(nn.Module):
+    def __init__(self, loss_type="L1", cosine_weight=0.7, loss_weight=0.3):
+        super().__init__()
+        self.cosine_loss = nn.CosineSimilarity()
+
+        if loss_type == "MSE":
+            self.loss = nn.MSELoss()
+        elif loss_type == "L1":
+            self.loss = nn.L1Loss()
+
+        self.cosine_weight = cosine_weight
+        self.loss_weight = loss_weight
+    def forward(self, pred_emb, real_emb):
+
+        re_loss_out = self.loss(pred_emb, real_emb)
+
+        cos_loss_out = self.cosine_loss(pred_emb, real_emb)
+        cos_loss_out = (1 - cos_loss_out).mean()
+
+        final_loss = re_loss_out * self.loss_weight + cos_loss_out * self.cosine_weight
+
+        return final_loss
 
 
 

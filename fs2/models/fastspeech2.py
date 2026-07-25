@@ -10,9 +10,13 @@ from einops import rearrange
 from fs2 import utils
 from fs2.models.baselightningmodule import BaseLightningClass
 from fs2.models.components.postnet import Postnet
-from fs2.models.components.transformer import FFTransformer
+from fs2.models.components.transformer import FFTransformer, Encoder
 from fs2.models.components.variance_adaptor import VarianceAdaptor
 from fs2.utils.model import denormalize, invert_log_norm
+
+from transformers import AutoModel
+from fs2.models.components.nets.HGST import HGST
+from fs2.models.components.nets.Text_Pred import StyleAdaptor
 
 log = utils.get_pylogger(__name__)
 
@@ -30,6 +34,7 @@ class FastSpeech2(BaseLightningClass):
         postnet,
         data_statistics,
         add_postnet=True,
+        gst=None,
         optimizer=None,
         scheduler=None,
     ):
@@ -42,8 +47,19 @@ class FastSpeech2(BaseLightningClass):
         self.spk_emb_dim = spk_emb_dim
         self.n_feats = n_feats
         self.update_data_statistics(data_statistics)
-        
-        self.encoder = FFTransformer(
+
+        self.hgst = HGST(
+            n_mel_channels=self.n_feats,           # 80
+            conv_filters=gst.conv_filters,
+            gru_hidden=gst.gru_hidden,
+            token_size=gst.token_size,
+            n_style_token=gst.n_style_token,
+            attn_head=gst.attn_head,
+            n_style_layers=gst.n_style_layers,
+            p_drop_style=0.1
+        )
+
+        self.encoder = Encoder(
             n_layer=encoder.n_layer,
             n_head=encoder.n_head,
             d_model=encoder.d_model,
@@ -55,7 +71,8 @@ class FastSpeech2(BaseLightningClass):
             dropemb=encoder.dropemb,
             embed_input=True,
             d_embed=encoder.d_model,
-            n_embed=n_vocab
+            n_embed=n_vocab,
+            style_dim=gst.token_size
         )
         
        
@@ -93,13 +110,16 @@ class FastSpeech2(BaseLightningClass):
         
        
     def forward(self, x, x_lengths, y, y_lengths, durations, pitches, energies, spks=None):
-        
-        x, x_mask = self.encoder(x, x_lengths)
-        
+
+
+        style = self.hgst(y, y_lengths)
+
+        x, x_mask = self.encoder(x, x_lengths, style_vector=style)
+
         if self.n_spks > 1:
             spk_emb = self.spk_emb(spks)
             x = x + spk_emb.unsqueeze(1)
-        
+
         # teacher forced durations during training 
         outputs, losses = self.variance_adapter(x, x_mask, durations, pitches, energies)
         
@@ -120,15 +140,20 @@ class FastSpeech2(BaseLightningClass):
         
 
     @torch.inference_mode()
-    def synthesise(self, x, x_lengths, spks=None, length_scale=1.0, p_factor=1.0, e_factor=1.0, d_factor=1.0):
+    def synthesise(self, x, x_lengths, spks=None, length_scale=1.0, p_factor=1.0, e_factor=1.0, d_factor=1.0, style_ref=None):
         # For RTF computation
         t = dt.datetime.now()
+
+        if style_ref is not None:
+            style = self.hgst(style_ref, torch.LongTensor([style_ref.shape[-1]]))
         
-        x, x_mask = self.encoder(x, x_lengths)
+        x, x_mask = self.encoder(x, x_lengths, style_vector=style)
         
         if self.n_spks > 1:
             spk_emb = self.spk_emb(spks)
             x = x + spk_emb.unsqueeze(1)
+
+
         
         # teacher forced durations during training 
         var_ada_outputs = self.variance_adapter.synthesise(x, x_mask, d_factor=length_scale, p_factor=p_factor, e_factor=e_factor)

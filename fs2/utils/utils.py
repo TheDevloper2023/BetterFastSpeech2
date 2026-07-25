@@ -135,10 +135,13 @@ def intersperse(lst, item):
 
 
 def save_figure_to_numpy(fig):
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep="")
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-    return data
+    fig.canvas.draw()
 
+    # RGBA buffer
+    buf = np.asarray(fig.canvas.buffer_rgba())
+
+    # Drop alpha channel
+    return buf[..., :3].copy()
 
 def plot_tensor(tensor):
     plt.style.use("default")

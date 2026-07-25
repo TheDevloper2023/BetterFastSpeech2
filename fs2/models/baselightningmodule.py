@@ -175,10 +175,12 @@ class BaseLightningClass(LightningModule, ABC):
 
             log.debug("Synthesising...")
             for i in range(2):
+                style_ref = one_batch["y"][i].unsqueeze(0).to(self.device) 
+                style_ref = style_ref.transpose(1, 2)
                 x = one_batch["x"][i].unsqueeze(0).to(self.device)
                 x_lengths = one_batch["x_lengths"][i].unsqueeze(0).to(self.device)
                 spks = one_batch["spks"][i].unsqueeze(0).to(self.device) if one_batch["spks"] is not None else None
-                output = self.synthesise(x[:, :x_lengths], x_lengths, spks=spks)
+                output = self.synthesise(x[:, :x_lengths], x_lengths, spks=spks, style_ref=style_ref)
                 decoder_output, y_pred = output["decoder_output"], output["mel"]
                 pitch_pred, energy_pred = output["pitch_pred"], output["energy_pred"]
  

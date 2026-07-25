@@ -5,6 +5,7 @@ defaults:
   - decoder: default.yaml
   - postnet: default.yaml
   - optimizer: adam.yaml
+  - gst: default.yaml
 
 _target_: fs2.models.fastspeech2.FastSpeech2
 n_vocab: 178

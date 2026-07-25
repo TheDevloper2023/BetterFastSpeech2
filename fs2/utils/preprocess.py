@@ -22,6 +22,9 @@ from tqdm.auto import tqdm
 from fs2.data.text_mel_datamodule import TextMelDataModule
 from fs2.utils.logging_utils import pylogger
 from fs2.utils.utils import to_numpy
+from transformers import AutoTokenizer, AutoModel
+from fs2.models.components.nets.utils import Bert_Wrapper
+
 
 log = pylogger.get_pylogger(__name__)
 
@@ -35,6 +38,8 @@ def generate_preprocessing_files(dataset: torch.utils.data.Dataset, output_folde
         model (nn.Module): MatchaTTS model
         device (torch.device): GPU or CPU
     """
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     x_lengths = 0
 
     # Pitch stats
@@ -53,10 +58,12 @@ def generate_preprocessing_files(dataset: torch.utils.data.Dataset, output_folde
     mel_sum = 0
     mel_sq_sum = 0
     total_mel_len = 0
+
+    bert = Bert_Wrapper("cardiffnlp/twitter-roberta-base-emotion-latest").to(device)
     
     processed_folder_name = output_folder 
     assert (processed_folder_name/ "durations").exists(), "Durations folder not found, it must be generated beforehand for this script to work"
-    pitch_folder, energy_folder, mel_folder = init_folders(processed_folder_name)
+    pitch_folder, energy_folder, mel_folder, bert_folder = init_folders(processed_folder_name)
     
     # Benefit of doing it over batch is the added speed due to multiprocessing
     for batch in tqdm(dataset, desc="🍵 Preprocessing durations 🍵"):
@@ -87,6 +94,14 @@ def generate_preprocessing_files(dataset: torch.utils.data.Dataset, output_folde
             mel_sum += torch.sum(mel_spec)
             mel_sq_sum += torch.sum(mel_spec ** 2)
             total_mel_len += mel_len
+
+            # BERT
+
+            text = batch['text'][i]   # raw string
+            bert_output = bert(text).detach().cpu().numpy()
+            np.save(bert_folder / f"{filname}.npy", bert_output.numpy())
+
+    
     
     # Save normalisation statistics
     pitch_mean = pitch_sum / x_lengths
@@ -125,10 +140,13 @@ def init_folders(processed_folder_name):
     pitch_folder = processed_folder_name / "pitch"
     energy_folder = processed_folder_name / "energy"
     mel_folder = processed_folder_name / "mel"
+    bert_folder = processed_folder_name / "bert"
     pitch_folder.mkdir(parents=True, exist_ok=True)
     energy_folder.mkdir(parents=True, exist_ok=True)
+    bert_folder.mkdir(parents=True, exist_ok=True)
     mel_folder.mkdir(parents=True, exist_ok=True)
-    return pitch_folder,energy_folder, mel_folder
+    
+    return pitch_folder,energy_folder, mel_folder, bert_folder
 
 
 
